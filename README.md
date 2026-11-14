@@ -89,6 +89,14 @@ End to end on a held-out 6144 × 6144 px region of the USGS *Geologic Map of Nor
 | names from text only | 65.9 % | 94.1 % | 62.0 % |
 | **+ colour propagation (GeoRas2Vec)** | **74.7 %** | **93.7 %** | **69.9 %** |
 
+> **Important — idealised legend.** In this experiment the legend colours were measured on the scan itself (median
+> colour of each unit's polygons elsewhere on the same map series), which is close to a perfect legend. With the
+> **printed legend** read automatically (USGS explanation sheet), names come out much lower: on reference polygons,
+> cross-sheet, about **19 %** of the area is correctly named from text and legend at 91–94 % precision (before colour
+> propagation), against 34–44 % with the idealised legend. Telling apart ~850 legend swatches by colour alone is
+> the current bottleneck (patterns matter); see *Limitations*. The first suggestion is usually right when the legend
+> is good, so a quick validation step by the user recovers much more.
+
 ![Where do the names come from](docs/img/naming_region.png)
 
 ![Zoom with unit codes](docs/img/naming_zoom.png)
@@ -176,6 +184,8 @@ The code that builds the tiles is in [`dataset/`](dataset/).
 - **Large background units**: on sea and ice areas the map prints many texts that are not the unit's code (seamount
   labels, ages of the oceanic crust). GeoRas2Vec does not guess there: the right code is usually the first
   `suggestion` (e.g. `Q (50 %)` for the sea floor), to be confirmed by the user.
+- **Real printed legends**: matching a printed legend swatch to its polygons on the scan by colour is unreliable
+  when the legend has hundreds of similar entries; pattern-aware matching is work in progress.
 - **Similar colours**: sibling units with almost the same colour are hard to separate without text, for example
   `lK` and `K`, or the pale yellows of Quaternary and Tertiary. Most propagation errors come from such pairs.
 - **Slivers**: very small polygons (&lt; ~40 px) and thin slivers along boundaries.
