@@ -12,6 +12,7 @@
 ![QGIS](https://img.shields.io/badge/QGIS-3.34%2B-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![Version](https://img.shields.io/badge/version-0.6-informational)
+[![License](https://img.shields.io/badge/code-Apache--2.0-blue)](LICENSE)
 
 </div>
 
@@ -189,6 +190,11 @@ The code that builds the tiles is in [`dataset/`](dataset/).
   url    = {https://github.com/PerfectWin7777/georas2vec}
 }
 ```
+
+## Licence
+
+Code: [Apache-2.0](LICENSE). Model weights and dataset (Hugging Face): CC BY-SA 4.0, because the training data include
+CC BY-SA sources.
 
 ## Author
 

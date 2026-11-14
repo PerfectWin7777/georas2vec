@@ -507,7 +507,7 @@ def export_gpkg(path, P, F, legend, lang=None):
     con.execute("""CREATE TABLE IF NOT EXISTS layer_styles (id INTEGER PRIMARY KEY AUTOINCREMENT, f_table_catalog TEXT(256),
       f_table_schema TEXT(256), f_table_name TEXT(256), f_geometry_column TEXT(256), styleName TEXT(30), styleQML TEXT,
       styleSLD TEXT, useAsDefault BOOLEAN, description TEXT, owner TEXT(30), ui TEXT(30), update_time DATETIME DEFAULT CURRENT_TIMESTAMP)""")
-    qml_u = QML_UNITS.replace('"couleur_hex"', '"legend_colour"') if (QML_UNITS and lang == "en") else QML_UNITS
+    qml_u = QML_UNITS.replace('couleur_hex', 'legend_colour') if (QML_UNITS and lang == 'en') else QML_UNITS   # le style lit la couleur par nom de champ
     for tbl, qml in ((L_UNITS, qml_u), (L_FAULTS, QML_FAULTS)):
         if qml:
             con.execute("INSERT INTO layer_styles (f_table_catalog,f_table_schema,f_table_name,f_geometry_column,styleName,styleQML,styleSLD,useAsDefault,description,owner,update_time) "

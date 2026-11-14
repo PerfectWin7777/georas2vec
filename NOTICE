@@ -1,0 +1,6 @@
+GeoRas2Vec
+Copyright 2026 Winter Tony
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+The model weights and the training dataset are distributed separately on Hugging Face under CC BY-SA 4.0,
+because the training data include CC BY-SA sources (see the dataset card).

@@ -60,6 +60,12 @@ if layers:
     ms.setBackgroundColor(QColor("white"))
     job = QgsMapRendererParallelJob(ms); job.start(); job.waitForFinished()
     img = job.renderedImage(); check(img.save(png), f"rendu carte -> {png}")
+    # le rendu doit montrer les couleurs de la carte (pas un aplat gris : style mal relié aux champs)
+    from PIL import Image
+    import numpy as np
+    a = np.asarray(Image.open(png).convert("RGB")).reshape(-1, 3)
+    a = a[(a.max(1) - a.min(1)) > 25]                     # pixels colorés (ni blanc, ni gris, ni noir)
+    check(len(a) > 0.2 * img.width() * img.height(), f"rendu en couleurs ({len(a) / (img.width() * img.height()):.0%} de pixels colorés)")
     QgsProject.instance().write(png.rsplit(".", 1)[0] + ".qgz")
     print("      projet QGIS écrit :", png.rsplit(".", 1)[0] + ".qgz")
 print("\nRÉSULTAT QGIS :", "TOUT OK" if ok else "PROBLÈMES")
