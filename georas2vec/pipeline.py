@@ -226,9 +226,28 @@ def ocr_candidates(rgb, lab, words, vocab, naming_pkl, flt=None):
     D["s"] = mdl["model"].predict_proba(D[mdl["features"]])[:, 1]
     return D, NM.assign(D, D["s"].values)
 
-INSIDE_FEATS = ["n_in", "din", "n_in_other"]   # lectures du code À L'INTÉRIEUR du polygone (v0.6)
+INSIDE_FEATS = ["n_in", "din", "n_in_other"]
+INK_FEATS = ["ink_L", "ink_C", "ink_h", "ink_dark", "txt_h"]   # encre et taille du texte lu (v0.7)   # lectures du code À L'INTÉRIEUR du polygone (v0.6)
 RANK_FEATS = ["d_norm", "d_rel", "rang", "gap12", "d_ratio", "ocr", "ocr_assigne", "ocr_rel", "lu", "n_lu", "dist_lu", "log_aire",
               "q_code", "n_alt"]
+
+def word_ink(rgb, words):
+    """Couleur de l'encre et taille de chaque texte lu : les codes d'unités sont imprimés en noir, les âges de croûte
+    océanique en rose, les toponymes en bleu/brun. Ajoute ink_L, ink_C, ink_h (teinte), ink_dark (part de pixels sombres), txt_h."""
+    lab = sk_rgb2lab(rgb) if len(words) else None
+    H, W = rgb.shape[:2]; out = []
+    for w in words.itertuples():
+        y0, y1 = int(max(0, w.y0)), int(min(H, max(w.y1, w.y0 + 1))); x0, x1 = int(max(0, w.x0)), int(min(W, max(w.x1, w.x0 + 1)))
+        px = lab[y0:y1, x0:x1].reshape(-1, 3)
+        if len(px) < 4:
+            out.append((50.0, 0.0, 0.0, 0.0, float(y1 - y0))); continue
+        L = px[:, 0]; ink = px[L <= np.percentile(L, 20)]
+        a, b = np.median(ink[:, 1]), np.median(ink[:, 2])
+        out.append((float(np.median(ink[:, 0])), float(np.hypot(a, b)), float(np.arctan2(b, a)), float((L < 35).mean()), float(y1 - y0)))
+    W_ = words.copy()
+    W_[["ink_L", "ink_C", "ink_h", "ink_dark", "txt_h"]] = np.array(out) if out else np.zeros((0, 5))
+    return W_
+
 
 def inside_reads(lab, words, D):
     """Codes lus DANS chaque polygone : (poly, code) -> nombre de lectures et distance max au bord du polygone.
@@ -288,6 +307,14 @@ def rank_pairs(pids, feats, areas, cents, codes, Fm, D, ch, words, K=12, lab=Non
                              n_in=INS.get((p, c), (0, 0))[0], din=INS.get((p, c), (0, 0.0))[1],
                              n_in_other=TOT.get(p, 0) - INS.get((p, c), (0, 0))[0]))
     X = pd.DataFrame(rows)
+    INK = ["ink_L", "ink_C", "ink_h", "ink_dark", "txt_h"]
+    if len(D) and all(c in words for c in INK):
+        best = D.sort_values("s", ascending=False).drop_duplicates(["poly", "code"])[["poly", "code", "word"]]
+        best[INK] = words.iloc[best.word.values][INK].values
+        X = X.merge(best.drop(columns="word"), on=["poly", "code"], how="left")
+        # encre du code le plus lu sur la carte (même s'il n'est pas lu près de ce polygone)
+    for c in INK:
+        X[c] = X[c].fillna(-1.0) if c in X else -1.0
     X["d_ratio"] = X.d_rel / (X.gap12 + 1); X["d_norm"] = X.d / X.d.median(); X["ocr_rel"] = X.ocr - X.ocr_max_poly
     # ambiguïté de lecture : qualité de la correspondance texte -> code, nombre de codes possibles pour le mot (exposant perdu)
     if len(D) and "qualite_code" in D:
@@ -472,9 +499,9 @@ QML_FAULTS = open(os.path.join(HERE, "qml_faults.xml")).read() if os.path.exists
 
 LANG = os.environ.get("GEORAS2VEC_LANG", os.environ.get("GEORAS2VEC_LANG", "en"))
 OUT_NAMES = {
-    "fr": dict(layers=("unites_geologiques", "failles", "legende"), cols={}, src={}, legend_cols={},
+    "fr": dict(layers=("geologie", "geologie_failles", "geologie_legende"), cols={}, src={}, legend_cols={},
                unnamed="Unité non identifiée", water="Eau, glace ou hors carte (pas d'unité géologique visible)"),
-    "en": dict(layers=("geological_units", "faults", "legend"),
+    "en": dict(layers=("geology", "geology_faults", "geology_legend"),
                cols={"nom": "name", "lithologie": "lithology", "source_nom": "source", "confiance": "confidence",
                      "texte_lu": "text_read", "couleur_hex": "legend_colour", "couleur_carte": "map_colour", "surface_km2": "area_km2"},
                src={"code lu sur la carte": "read on the map", "même couleur qu'une unité lue sur la carte": "same colour as a unit read on the map",

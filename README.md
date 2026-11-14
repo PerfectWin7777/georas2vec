@@ -32,11 +32,11 @@ One **GeoPackage** that opens directly in QGIS, with styles already applied:
 
 | layer | content |
 |---|---|
-| `geological_units` | one polygon per unit, with its attributes (below) |
-| `faults` | fault traces as lines |
-| `legend` | the legend entries used |
+| `geology` | one polygon per unit, with its attributes (below) |
+| `geology_faults` | fault traces as lines (shown above the units in QGIS) |
+| `geology_legend` | table (no geometry) with the legend entries used |
 
-Attributes of `geological_units`:
+Attributes of `geology`:
 
 | column | meaning |
 |---|---|
@@ -49,7 +49,11 @@ Attributes of `geological_units`:
 | `legend_colour`, `map_colour` | colour of the legend swatch / colour measured on the scan |
 | `area_km2` | polygon area |
 
-Use `--lang fr` for French layer and column names (`unites_geologiques`, `nom`, `lithologie`…).
+Use `--lang fr` for French layer and column names (`geologie`, `nom`, `lithologie`…).
+
+> **Tip, map looks rotated in QGIS?** The GeoPackage keeps the projection of the input raster. If your QGIS project
+> uses another CRS (often WGS 84), QGIS reprojects on the fly and an oblique map projection looks tilted. Right-click
+> the `geology` layer → *Layer CRS* → *Set Project CRS from Layer* to see it exactly like the scan.
 
 Geometries are valid, polygons have **no gaps and no overlaps** (shared boundaries are simplified once,
 topologically), small fragments left by the segmentation are merged into their neighbours, and the QGIS styles are

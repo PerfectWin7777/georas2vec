@@ -15,8 +15,8 @@ def check(cond, msg):
 
 import sqlite3
 _tabs = {r[0] for r in sqlite3.connect(gpkg).execute("SELECT table_name FROM gpkg_contents")}
-EN = "geological_units" in _tabs
-U, FL, LG = ("geological_units", "faults", "legend") if EN else ("unites_geologiques", "failles", "legende")
+EN = "geology" in _tabs
+U, FL, LG = ("geology", "geology_faults", "geology_legend") if EN else ("geologie", "geologie_failles", "geologie_legende")
 C = (dict(nom="name", lithologie="lithology", source_nom="source", confiance="confidence", lu="read on the map") if EN
      else dict(nom="nom", lithologie="lithologie", source_nom="source_nom", confiance="confiance", lu="code lu sur la carte"))
 layers = []
