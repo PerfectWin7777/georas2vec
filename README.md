@@ -140,6 +140,15 @@ pip install -r requirements.txt
 python scripts/vectorize.py my_map.tif my_legend.csv my_map.gpkg            # add --lang fr for French names
 ```
 
+No legend CSV? Give an **image of the printed legend** (or a rectangle of the map) and GeoRas2Vec reads it
+automatically: swatch boxes, unit codes (with a reader trained for geological codes: Є, Ʀ, superscripts, small capitals)
+and colours. Review the legend it read with `--save-legend`:
+
+```bash
+python scripts/vectorize.py my_map.tif legend_scan.png my_map.gpkg --save-legend legend_read.csv
+python scripts/vectorize.py my_map.tif my_legend.csv my_map.gpkg --legend-box 120,8400,2600,11000
+```
+
 - `my_map.tif` must be georeferenced (any CRS).
 - `my_legend.csv` has one row per legend entry: `code` (as printed on the map), optional `nom`, `age`,
   `lithologie`, and either the pixel box of the legend swatch (`x0,y0,x1,y1`, recommended) or its colour

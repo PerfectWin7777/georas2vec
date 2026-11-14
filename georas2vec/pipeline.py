@@ -192,6 +192,29 @@ def read_text(rgb, reader, B=1024, OV=96, allow=None):
     return pd.DataFrame(words, columns=["text", "conf", "cx", "cy", "x0", "x1", "y0", "y1"])
 
 
+READ_CONF = 0.6
+SWATCH_ENC = None   # comparateur de cases appris (swatch_match.Enc) ; nécessite legend['swatch'] (images des cases)
+CODE_READER = None   # lecteur de codes géologiques entraîné (code_reader.Reader) ; None = OCR générique seul
+
+
+def reread_codes(rgb, words, reader=None, pad=3):
+    """Relit chaque texte détecté avec le lecteur de codes géologiques (Є, Ʀ, exposants, petites capitales) :
+    ajoute 'code_lu' (code canonique, ex. 'CAO*', 'TRJ', 'X3g') et 'code_conf'."""
+    reader = reader or CODE_READER
+    if reader is None or not len(words):
+        return words
+    from PIL import Image
+    H, W = rgb.shape[:2]; ims = []
+    for w in words.itertuples():
+        x0, x1 = int(max(0, w.x0 - pad)), int(min(W, w.x1 + pad)); y0, y1 = int(max(0, w.y0 - pad)), int(min(H, w.y1 + pad))
+        ims.append(Image.fromarray(rgb[y0:max(y1, y0 + 4), x0:max(x1, x0 + 4)]))
+    out = []
+    for i in range(0, len(ims), 256):
+        out += reader.read(ims[i:i + 256])
+    words = words.copy(); words["code_lu"] = [o[0] for o in out]; words["code_conf"] = [o[1] for o in out]
+    return words
+
+
 # ------------------------------------------------------------------ 5. nommage
 def swatch_features(lab_pixels):
     """Signature d'une case de légende / d'un polygone : couleur dominante, couleurs claire et foncée du motif, texture."""
@@ -212,6 +235,11 @@ def ocr_candidates(rgb, lab, words, vocab, naming_pkl, flt=None):
     rows = []
     for k, wd in enumerate(words.itertuples()):
         cq = NM.to_codes(wd.text)
+        cl = getattr(wd, "code_lu", None)
+        if cl and getattr(wd, "code_conf", 0) >= READ_CONF:          # lecture du lecteur spécialisé : prioritaire si le code existe
+            exact = NM.canon_lookup(cl)
+            if exact:
+                cq = [(exact, 1.0)] + [x for x in cq if x[0] != exact]
         if not cq:
             continue
         class _W: pass
@@ -325,6 +353,23 @@ def rank_pairs(pids, feats, areas, cents, codes, Fm, D, ch, words, K=12, lab=Non
         X[c] = X[c].fillna(0) if c in X else 0.0
     return X
 
+def add_swatch_feats(X, rgb, lab, ids, legend):
+    """Ressemblance couleur + motif (comparateur appris) entre chaque polygone et la case de chaque code candidat."""
+    import swatch_match as SM
+    has = SWATCH_ENC is not None and "swatch" in legend and legend.swatch.notna().any()
+    if not has:
+        X["sw_sim"], X["sw_rank"], X["sw_gap"] = -1.0, 999, 2.0
+        return X
+    L = legend[legend.swatch.notna()]
+    ES = SM.embed_images(SWATCH_ENC, list(L.swatch.values)); EP = SM.poly_embeddings(SWATCH_ENC, rgb, lab, ids)
+    S = EP @ ES.T; rank = np.argsort(np.argsort(-S, 1), 1); best = S.max(1)
+    pi = {p_: k for k, p_ in enumerate(ids)}; ci = {c: j for j, c in enumerate(L.index)}
+    k = X.poly.map(pi).values; j = X.code.map(lambda c: ci.get(c, -1)).values; jj = np.maximum(j, 0)
+    X["sw_sim"] = np.where(j >= 0, S[k, jj], -1.0); X["sw_rank"] = np.where(j >= 0, rank[k, jj], 999)
+    X["sw_gap"] = np.where(j >= 0, best[k] - S[k, jj], 2.0)
+    return X
+
+
 def name_polygons(rgb, lab, words, legend, naming_pkl, flt=None, ranker_pkl="legend_ranker.pkl", sure=None, check=0.5):
     """legend : DataFrame index=code, colonnes nom, age, lithologie, couleur_hex, feat (signature de la case).
     Retourne par polygone : code, source_nom, confiance, texte_lu, suggestions.
@@ -339,7 +384,11 @@ def name_polygons(rgb, lab, words, legend, naming_pkl, flt=None, ranker_pkl="leg
     feats = np.stack([swatch_features(labc[order[a:b]]) for a, b in zip(starts, ends)])
     cents = ndi.center_of_mass(np.ones_like(lab), lab, ids)
     codes = np.array(legend.index); Fm = np.stack(legend.feat.values)
+    if any(f in R["features"] for f in INK_FEATS):
+        words = word_ink(rgb, words)
     X = rank_pairs(ids, feats, ends - starts, cents, codes, Fm, D, ch, words, K=R.get("K", 12), lab=lab)
+    if "sw_sim" in R["features"]:
+        X = add_swatch_feats(X, rgb, lab, ids, legend)
     X["p"] = R["model"].predict_proba(X[R["features"]])[:, 1]
     X = X.sort_values(["poly", "p"], ascending=[True, False])
     lu_txt = {}
@@ -527,7 +576,8 @@ def export_gpkg(path, P, F, legend, lang=None):
     # couche failles toujours présente (même vide) : l'utilisateur la retrouve dans QGIS et peut y dessiner
     F.to_file(path, layer=L_FAULTS, driver="GPKG", geometry_type="LineString")
     con = sqlite3.connect(path)
-    lg = legend.drop(columns=["feat"]).reset_index().rename(columns={"index": "code"})
+    lg = legend.drop(columns=[c for c in ("feat", "swatch", "conf", "x0", "y0", "x1", "y1") if c in legend]).reset_index()
+    lg = lg.rename(columns={lg.columns[0]: "code"})
     if "age" in lg:
         lg["age"] = lg.age.map(clean_age)
     lg.rename(columns=O["legend_cols"]).to_sql(L_LEG, con, index=False, if_exists="replace")

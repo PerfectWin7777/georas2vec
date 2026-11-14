@@ -39,12 +39,27 @@ def _flat_keys(code):
     for k in list(keys):
         if "TR" in k:
             keys |= {k.replace("TR", "R", 1), k.replace("TR", "Tr", 1)}
+    # unité sous-marine 'TQ*' : sur la carte, l'astérisque n'est souvent pas imprimé -> 'TQ' propose aussi 'TQ*' (la couleur tranche)
+    for k in list(keys) + [code]:
+        if "*" in k:
+            keys.add(k.replace("*", ""))
     return {k for k in keys if k and k != code}
+
+
+_CANON = {}
+
+
+def canon_lookup(c):
+    """Code canonique lu (exposants en chiffres, sans espace) -> code de la légende, s'il existe."""
+    if not _CANON:
+        for v in VOCAB:
+            _CANON.setdefault(str(v).translate(SUP).replace(" ", ""), v)
+    return _CANON.get(c) or _CANON.get(c.rstrip("*"))
 
 
 def set_vocab(codes):
     global VOCAB, VSET, _FLAT
-    VOCAB = sorted(codes); VSET = set(VOCAB); _FLAT = {}
+    VOCAB = sorted(codes); VSET = set(VOCAB); _FLAT = {}; _CANON.clear()
     for c in VOCAB:
         for k in _flat_keys(c):
             _FLAT.setdefault(k, set()).add(c)
