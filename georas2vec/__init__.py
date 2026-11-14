@@ -5,6 +5,6 @@ _HERE = _os.path.dirname(_os.path.abspath(__file__))
 if _HERE not in _sys.path:
     _sys.path.insert(0, _HERE)          # the modules import each other by flat name (pipeline, naming_model, ...)
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 from .assets import fetch_assets  # noqa: E402,F401

@@ -13,8 +13,14 @@ def check(cond, msg):
     global ok
     print(("OK   " if cond else "ÉCHEC"), msg); ok &= bool(cond)
 
+import sqlite3
+_tabs = {r[0] for r in sqlite3.connect(gpkg).execute("SELECT table_name FROM gpkg_contents")}
+EN = "geological_units" in _tabs
+U, FL, LG = ("geological_units", "faults", "legend") if EN else ("unites_geologiques", "failles", "legende")
+C = (dict(nom="name", lithologie="lithology", source_nom="source", confiance="confidence", lu="read on the map") if EN
+     else dict(nom="nom", lithologie="lithologie", source_nom="source_nom", confiance="confiance", lu="code lu sur la carte"))
 layers = []
-for name, geom in (("unites_geologiques", QgsWkbTypes.PolygonGeometry), ("failles", QgsWkbTypes.LineGeometry)):
+for name, geom in ((U, QgsWkbTypes.PolygonGeometry), (FL, QgsWkbTypes.LineGeometry)):
     lyr = QgsVectorLayer(f"{gpkg}|layername={name}", name, "ogr")
     check(lyr.isValid(), f"couche {name} chargée")
     if not lyr.isValid():
@@ -23,14 +29,14 @@ for name, geom in (("unites_geologiques", QgsWkbTypes.PolygonGeometry), ("faille
     check(styled, f"{name} : style intégré chargé automatiquement ({msg})")
     check(lyr.geometryType() == geom, f"{name} : type de géométrie {QgsWkbTypes.geometryDisplayString(lyr.geometryType())}")
     check(lyr.crs().isValid(), f"{name} : SCR {lyr.crs().authid() or lyr.crs().description()}")
-    n = lyr.featureCount(); check(n > 0 or name == "failles", f"{name} : {n} entités")
+    n = lyr.featureCount(); check(n > 0 or name == FL, f"{name} : {n} entités")
     bad = sum(1 for f in lyr.getFeatures() if not f.geometry().isGeosValid())
     check(bad == 0, f"{name} : géométries invalides = {bad}")
     print("      champs :", [f.name() for f in lyr.fields()])
     r = lyr.renderer()
     print("      rendu :", r.type(), (f"{len(r.categories())} catégories" if hasattr(r, "categories") else ""))
-    if name == "unites_geologiques":
-        need = {"code", "nom", "age", "lithologie", "source_nom", "confiance", "suggestions"}
+    if name == U:
+        need = {"code", C["nom"], "age", C["lithologie"], C["source_nom"], C["confiance"], "suggestions"}
         check(need <= {f.name() for f in lyr.fields()}, "colonnes de nommage présentes")
         # topologie : pas de chevauchement entre polygones voisins (somme des surfaces = surface de l'union)
         gs = [f.geometry() for f in lyr.getFeatures()]
@@ -38,14 +44,14 @@ for name, geom in (("unites_geologiques", QgsWkbTypes.PolygonGeometry), ("faille
         s_sum = sum(g.area() for g in gs); s_u = u.area()
         check(abs(s_sum - s_u) / s_u < 1e-6, f"{name} : aucun chevauchement entre polygones (écart {abs(s_sum - s_u) / s_u:.2e})")
         # filtre attributaire comme le ferait un utilisateur QGIS
-        lyr.setSubsetString("\"source_nom\" = 'code lu sur la carte'")
-        print("      filtre source_nom='code lu sur la carte' :", lyr.featureCount(), "entités"); lyr.setSubsetString("")
+        lyr.setSubsetString(f"\"{C['source_nom']}\" = '{C['lu']}'")
+        print(f"      filtre {C['source_nom']}='{C['lu']}' :", lyr.featureCount(), "entités"); lyr.setSubsetString("")
         ex = next(lyr.getFeatures())
-        print("      exemple :", {k: ex[k] for k in ("code", "nom", "age", "source_nom", "confiance")})
+        print("      exemple :", {k: ex[k] for k in ("code", C["nom"], "age", C["source_nom"], C["confiance"])})
     layers.append(lyr)
 
-leg = QgsVectorLayer(f"{gpkg}|layername=legende", "legende", "ogr")
-check(leg.isValid() and leg.featureCount() > 0, f"table legende : {leg.featureCount() if leg.isValid() else 0} lignes")
+leg = QgsVectorLayer(f"{gpkg}|layername={LG}", LG, "ogr")
+check(leg.isValid() and leg.featureCount() > 0, f"table {LG} : {leg.featureCount() if leg.isValid() else 0} lignes")
 
 if layers:
     QgsProject.instance().addMapLayers(layers)

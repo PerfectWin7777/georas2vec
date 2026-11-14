@@ -11,7 +11,7 @@
 [![Dataset](https://img.shields.io/badge/🤗%20Dataset-georas2vec-yellow)](https://huggingface.co/datasets/PerfectWin/georas2vec)
 ![QGIS](https://img.shields.io/badge/QGIS-3.34%2B-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![Version](https://img.shields.io/badge/version-0.5-informational)
+![Version](https://img.shields.io/badge/version-0.6-informational)
 
 </div>
 
@@ -31,12 +31,28 @@ One **GeoPackage** that opens directly in QGIS, with styles already applied:
 
 | layer | content |
 |---|---|
-| `unites_geologiques` | one polygon per unit: `code`, `nom`, `age`, `lithologie`, `source_nom` (how the name was found), `confiance`, `texte_lu` (text read on the map), `suggestions` (top-3 when not sure), map colour, area |
-| `failles` | fault traces as lines |
-| `legende` | the legend entries used |
+| `geological_units` | one polygon per unit, with its attributes (below) |
+| `faults` | fault traces as lines |
+| `legend` | the legend entries used |
+
+Attributes of `geological_units`:
+
+| column | meaning |
+|---|---|
+| `code` | unit code as printed on the map (empty when not identified) |
+| `name`, `age`, `lithology` | copied from **your legend** for that code. GeoRas2Vec finds the code; it never guesses an age or a lithology |
+| `source` | how the code was found: `read on the map`, `same colour as a unit read on the map`, `unidentified (probable suggestion)`, `unidentified`, `water / outside the map` |
+| `confidence` | probability that the code is right |
+| `text_read` | the text actually read by the OCR |
+| `suggestions` | the 3 most likely codes with their probabilities, so a geologist can decide quickly when the model is not sure |
+| `legend_colour`, `map_colour` | colour of the legend swatch / colour measured on the scan |
+| `area_km2` | polygon area |
+
+Use `--lang fr` for French layer and column names (`unites_geologiques`, `nom`, `lithologie`…).
 
 Geometries are valid, polygons have **no gaps and no overlaps** (shared boundaries are simplified once,
-topologically), and the QGIS styles are embedded in the file.
+topologically), small fragments left by the segmentation are merged into their neighbours, and the QGIS styles are
+embedded in the file.
 
 ## Results
 
@@ -66,7 +82,7 @@ End to end on a held-out 6144 × 6144 px region of the USGS *Geologic Map of Nor
 | | area named | names correct | area correctly named |
 |---|---|---|---|
 | names from text only | 65.9 % | 94.1 % | 62.0 % |
-| **+ colour propagation (GeoRas2Vec)** | **73.9 %** | **94.2 %** | **69.6 %** |
+| **+ colour propagation (GeoRas2Vec)** | **74.7 %** | **93.7 %** | **69.9 %** |
 
 ![Where do the names come from](docs/img/naming_region.png)
 
@@ -108,7 +124,7 @@ neighbouring polygons with the same code run over the whole map at once.
 git clone https://github.com/PerfectWin7777/georas2vec.git
 cd georas2vec
 pip install -r requirements.txt
-python scripts/vectorize.py my_map.tif my_legend.csv my_map.gpkg
+python scripts/vectorize.py my_map.tif my_legend.csv my_map.gpkg            # add --lang fr for French names
 ```
 
 - `my_map.tif` must be georeferenced (any CRS).
@@ -152,6 +168,9 @@ The code that builds the tiles is in [`dataset/`](dataset/).
 ## Limitations
 
 - **Names**: a unit whose code is never printed (or never readable) on the map stays unnamed.
+- **Large background units**: on sea and ice areas the map prints many texts that are not the unit's code (seamount
+  labels, ages of the oceanic crust). GeoRas2Vec does not guess there: the right code is usually the first
+  `suggestion` (e.g. `Q (50 %)` for the sea floor), to be confirmed by the user.
 - **Similar colours**: sibling units with almost the same colour are hard to separate without text, for example
   `lK` and `K`, or the pale yellows of Quaternary and Tertiary. Most propagation errors come from such pairs.
 - **Slivers**: very small polygons (&lt; ~40 px) and thin slivers along boundaries.

@@ -16,7 +16,7 @@ if not os.path.exists(OUT):
         P = z["polys"]; P = P[P.area >= MIN_AREA].reset_index(drop=True)
         cents = ndi.center_of_mass(np.ones_like(R["inst"]), R["inst"], P.poly.values)
         X = PL.rank_pairs(P.poly.values, np.stack(P.feat.values), P.area.values, cents, np.array(z["legend"].index),
-                          np.stack(z["legend"].feat.values), z["D"], z["ch"], R["words"])
+                          np.stack(z["legend"].feat.values), z["D"], z["ch"], R["words"], lab=R["inst"])
         tr = dict(zip(P.poly, P.code)); ar = dict(zip(P.poly, P.area))
         X["zone"] = name; X["vrai"] = X.poly.map(tr); X["aire"] = X.poly.map(ar); X["y"] = (X.code == X.vrai).astype(int)
         parts.append(X); print(name, len(X), flush=True)

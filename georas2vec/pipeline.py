@@ -226,10 +226,31 @@ def ocr_candidates(rgb, lab, words, vocab, naming_pkl, flt=None):
     D["s"] = mdl["model"].predict_proba(D[mdl["features"]])[:, 1]
     return D, NM.assign(D, D["s"].values)
 
+INSIDE_FEATS = ["n_in", "din", "n_in_other"]   # lectures du code À L'INTÉRIEUR du polygone (v0.6)
 RANK_FEATS = ["d_norm", "d_rel", "rang", "gap12", "d_ratio", "ocr", "ocr_assigne", "ocr_rel", "lu", "n_lu", "dist_lu", "log_aire",
               "q_code", "n_alt"]
 
-def rank_pairs(pids, feats, areas, cents, codes, Fm, D, ch, words, K=12):
+def inside_reads(lab, words, D):
+    """Codes lus DANS chaque polygone : (poly, code) -> nombre de lectures et distance max au bord du polygone.
+    Une étiquette d'une petite unité voisine est collée à cette unité (près d'un bord) ; l'étiquette d'une grande unité
+    (ex. Q sur la mer) est imprimée en plein milieu."""
+    if lab is None or not len(D):
+        return {}, {}
+    e = np.zeros(lab.shape, bool); e[:, :-1] |= lab[:, :-1] != lab[:, 1:]; e[:-1, :] |= lab[:-1, :] != lab[1:, :]
+    dt = ndi.distance_transform_edt(~e)
+    H, W = lab.shape; cnt, dmax, tot = {}, {}, {}
+    for w, c in D[["word", "code"]].drop_duplicates().values:
+        r = words.iloc[w]; y, x = int(np.clip(r.cy, 0, H - 1)), int(np.clip(r.cx, 0, W - 1)); p = lab[y, x]
+        if p == 0:
+            continue
+        cnt[(p, c)] = cnt.get((p, c), 0) + 1; dmax[(p, c)] = max(dmax.get((p, c), 0.0), float(dt[y, x]))
+    for w in D.word.unique():
+        r = words.iloc[w]; p = lab[int(np.clip(r.cy, 0, H - 1)), int(np.clip(r.cx, 0, W - 1))]
+        tot[p] = tot.get(p, 0) + 1
+    return {k: (v, dmax[k]) for k, v in cnt.items()}, tot
+
+
+def rank_pairs(pids, feats, areas, cents, codes, Fm, D, ch, words, K=12, lab=None):
     """Paires (polygone, code candidat) et leurs indices. Candidats = K cases de légende les plus proches + codes lus par l'OCR.
     Indices : uniquement le texte lu sur la carte et la légende (pas de propagation d'apparence entre polygones)."""
     cidx = {c: i for i, c in enumerate(codes)}
@@ -249,6 +270,9 @@ def rank_pairs(pids, feats, areas, cents, codes, Fm, D, ch, words, K=12):
     for (p, c), s in E.items():
         Ep.setdefault(p, []).append(c)
     lu_pos = {c: np.array(v) for c, v in lu_pos.items()}
+    INS, TOT = inside_reads(lab, words, D)
+    for (p, c) in INS:
+        Ep.setdefault(p, []).append(c)
     rows = []
     for i, p in enumerate(pids):
         o = np.argsort(d[i]); rank = np.empty(len(codes), int); rank[o] = np.arange(len(codes))
@@ -260,7 +284,9 @@ def rank_pairs(pids, feats, areas, cents, codes, Fm, D, ch, words, K=12):
                              ocr=E.get((p, c), 0), ocr_assigne=asg.get((p, c), 0), ocr_max_poly=emax,
                              lu=int(pos is not None), n_lu=0 if pos is None else len(pos),
                              dist_lu=5000 if pos is None else np.hypot(pos[:, 0] - cents[i][0], pos[:, 1] - cents[i][1]).min(),
-                             log_aire=np.log(areas[i])))
+                             log_aire=np.log(areas[i]),
+                             n_in=INS.get((p, c), (0, 0))[0], din=INS.get((p, c), (0, 0.0))[1],
+                             n_in_other=TOT.get(p, 0) - INS.get((p, c), (0, 0))[0]))
     X = pd.DataFrame(rows)
     X["d_ratio"] = X.d_rel / (X.gap12 + 1); X["d_norm"] = X.d / X.d.median(); X["ocr_rel"] = X.ocr - X.ocr_max_poly
     # ambiguïté de lecture : qualité de la correspondance texte -> code, nombre de codes possibles pour le mot (exposant perdu)
@@ -286,7 +312,7 @@ def name_polygons(rgb, lab, words, legend, naming_pkl, flt=None, ranker_pkl="leg
     feats = np.stack([swatch_features(labc[order[a:b]]) for a, b in zip(starts, ends)])
     cents = ndi.center_of_mass(np.ones_like(lab), lab, ids)
     codes = np.array(legend.index); Fm = np.stack(legend.feat.values)
-    X = rank_pairs(ids, feats, ends - starts, cents, codes, Fm, D, ch, words, K=R.get("K", 12))
+    X = rank_pairs(ids, feats, ends - starts, cents, codes, Fm, D, ch, words, K=R.get("K", 12), lab=lab)
     X["p"] = R["model"].predict_proba(X[R["features"]])[:, 1]
     X = X.sort_values(["poly", "p"], ascending=[True, False])
     lu_txt = {}
@@ -364,6 +390,37 @@ def merge_same_code(lab, N):
     return root[lab], G.drop(columns=["_r", "_a"])
 
 
+SLIVER_PX = 200   # éclats non nommés laissés par la fusion des échelles
+
+
+def merge_slivers(lab, N, max_px=None, passes=3):
+    """Éclats NON nommés (< max_px) : fusionnés avec le voisin qui partage la plus longue frontière (ce sont des débris de la
+    fusion des deux échelles, pas des unités : ils encombraient la table attributaire)."""
+    max_px = SLIVER_PX if max_px is None else max_px
+    for _ in range(passes):
+        n = lab.max() + 1
+        area = np.bincount(lab.ravel(), minlength=n)
+        code = N.code.reindex(np.arange(n)).fillna("").values
+        src = N.source_nom.reindex(np.arange(n)).fillna("").values
+        small = (area < max_px) & (area > 0) & (code == "") & (src != "eau ou hors carte"); small[0] = False
+        if not small.any():
+            break
+        pr = []
+        for a, b in ((lab[:, :-1], lab[:, 1:]), (lab[:-1, :], lab[1:, :])):
+            m = (a != b) & (a > 0) & (b > 0)
+            pr += [np.stack([a[m], b[m]], 1), np.stack([b[m], a[m]], 1)]
+        E = pd.DataFrame(np.concatenate(pr), columns=["a", "b"])
+        E = E[small[E.a.values]].value_counts().rename("n").reset_index()
+        E["big"] = area[E.b.values]
+        E = E.sort_values(["a", "n", "big"], ascending=[True, False, False]).drop_duplicates("a")
+        if not len(E):
+            break
+        mp = np.arange(n); mp[E.a.values] = E.b.values
+        mp = mp[mp]                                   # chaînes courtes (éclat -> éclat -> gros polygone)
+        lab = mp[lab]; N = N.drop(index=E.a.values, errors="ignore")
+    return lab, N
+
+
 def absorb_slivers(rgb, lab, N, max_px=200, max_dist=25.0, passes=3):
     """Éclats NON nommés (< max_px) laissés par la fusion des échelles : absorbés par le voisin avec lequel ils partagent la plus
     longue frontière, si ce voisin est nommé et de couleur proche (distance des signatures <= max_dist)."""
@@ -413,25 +470,52 @@ QML_UNITS = open(os.path.join(HERE, "qml_units.xml")).read() if os.path.exists(o
 QML_FAULTS = open(os.path.join(HERE, "qml_faults.xml")).read() if os.path.exists(os.path.join(HERE, "qml_faults.xml")) else None
 
 
-def export_gpkg(path, P, F, legend):
+LANG = os.environ.get("GEORAS2VEC_LANG", os.environ.get("GEORAS2VEC_LANG", "en"))
+OUT_NAMES = {
+    "fr": dict(layers=("unites_geologiques", "failles", "legende"), cols={}, src={}, legend_cols={},
+               unnamed="Unité non identifiée", water="Eau, glace ou hors carte (pas d'unité géologique visible)"),
+    "en": dict(layers=("geological_units", "faults", "legend"),
+               cols={"nom": "name", "lithologie": "lithology", "source_nom": "source", "confiance": "confidence",
+                     "texte_lu": "text_read", "couleur_hex": "legend_colour", "couleur_carte": "map_colour", "surface_km2": "area_km2"},
+               src={"code lu sur la carte": "read on the map", "même couleur qu'une unité lue sur la carte": "same colour as a unit read on the map",
+                    "couleur de la légende": "legend colour", "non identifiée": "unidentified",
+                    "non identifiée – suggestion probable": "unidentified (probable suggestion)", "eau ou hors carte": "water / outside the map"},
+               legend_cols={"nom": "name", "lithologie": "lithology", "couleur_hex": "legend_colour"},
+               unnamed="Unidentified unit", water="Water, ice or outside the map (no geological unit)"),
+}
+
+
+def clean_age(a):
+    """'Miocene – Miocene' -> 'Miocene' ; 'Age unknown – Age unknown' -> '' ; garde un intervalle réel 'A – B'."""
+    parts = [p.strip() for p in str(a or "").replace(" / ", " – ").split("–")]
+    parts = [p for p in dict.fromkeys(parts) if p and p.lower() != "age unknown"]
+    return " – ".join(parts)
+
+
+def export_gpkg(path, P, F, legend, lang=None):
+    lang = lang or LANG; O = OUT_NAMES[lang]; L_UNITS, L_FAULTS, L_LEG = O["layers"]
     if os.path.exists(path):
         os.remove(path)
-    P.to_file(path, layer="unites_geologiques", driver="GPKG")
+    P.to_file(path, layer=L_UNITS, driver="GPKG")
     # couche failles toujours présente (même vide) : l'utilisateur la retrouve dans QGIS et peut y dessiner
-    F.to_file(path, layer="failles", driver="GPKG", geometry_type="LineString")
+    F.to_file(path, layer=L_FAULTS, driver="GPKG", geometry_type="LineString")
     con = sqlite3.connect(path)
-    legend.drop(columns=["feat"]).reset_index().rename(columns={"index": "code"}).to_sql("legende", con, index=False, if_exists="replace")
+    lg = legend.drop(columns=["feat"]).reset_index().rename(columns={"index": "code"})
+    if "age" in lg:
+        lg["age"] = lg.age.map(clean_age)
+    lg.rename(columns=O["legend_cols"]).to_sql(L_LEG, con, index=False, if_exists="replace")
     con.execute("""CREATE TABLE IF NOT EXISTS layer_styles (id INTEGER PRIMARY KEY AUTOINCREMENT, f_table_catalog TEXT(256),
       f_table_schema TEXT(256), f_table_name TEXT(256), f_geometry_column TEXT(256), styleName TEXT(30), styleQML TEXT,
       styleSLD TEXT, useAsDefault BOOLEAN, description TEXT, owner TEXT(30), ui TEXT(30), update_time DATETIME DEFAULT CURRENT_TIMESTAMP)""")
-    for tbl, qml in (("unites_geologiques", QML_UNITS), ("failles", QML_FAULTS)):
+    qml_u = QML_UNITS.replace('"couleur_hex"', '"legend_colour"') if (QML_UNITS and lang == "en") else QML_UNITS
+    for tbl, qml in ((L_UNITS, qml_u), (L_FAULTS, QML_FAULTS)):
         if qml:
             con.execute("INSERT INTO layer_styles (f_table_catalog,f_table_schema,f_table_name,f_geometry_column,styleName,styleQML,styleSLD,useAsDefault,description,owner,update_time) "
                         "VALUES ('','',?,'geom',?,?,'',1,'style GeoRas2Vec','',strftime('%Y-%m-%dT%H:%M:%fZ','now'))", (tbl, tbl, qml))
     con.execute("INSERT INTO gpkg_contents (table_name, data_type, identifier) SELECT 'layer_styles','attributes','layer_styles' "
                 "WHERE NOT EXISTS (SELECT 1 FROM gpkg_contents WHERE table_name='layer_styles')")
-    con.execute("INSERT INTO gpkg_contents (table_name, data_type, identifier) SELECT 'legende','attributes','legende' "
-                "WHERE NOT EXISTS (SELECT 1 FROM gpkg_contents WHERE table_name='legende')")
+    con.execute("INSERT INTO gpkg_contents (table_name, data_type, identifier) SELECT ?,'attributes',? "
+                "WHERE NOT EXISTS (SELECT 1 FROM gpkg_contents WHERE table_name=?)", (L_LEG, L_LEG, L_LEG))
     con.commit(); con.close()
 
 
@@ -457,7 +541,7 @@ def analyse_blocks(rgb, model, legend, reader, naming_pkl, ranker_pkl, water_pkl
     return lab, pf, pd.concat(Ns)
 
 
-def finish(rgb, lab, pf, N, transform, crs, legend, out_gpkg):
+def finish(rgb, lab, pf, N, transform, crs, legend, out_gpkg, lang=None):
     """Vectorisation + table attributaire + failles + export GeoPackage."""
     P = vectorize_units(lab, transform, crs)
     P = P.join(N, on="pid")
@@ -465,7 +549,7 @@ def finish(rgb, lab, pf, N, transform, crs, legend, out_gpkg):
     lg = legend.reindex(P.code)
     P["nom"] = np.where(P.code != "", (P.code + " – " + lg.lithologie.fillna("").values).str.strip(" –"), "Unité non identifiée")
     P["nom"] = np.where(P.source_nom == "eau ou hors carte", "Eau, glace ou hors carte (pas d'unité géologique visible)", P.nom)
-    P["age"] = lg.age.fillna("").values; P["lithologie"] = lg.lithologie.fillna("").values
+    P["age"] = [clean_age(a) for a in lg.age.fillna("").values]; P["lithologie"] = lg.lithologie.fillna("").values
     med = [ndi.median(rgb[..., c], lab, P.pid.values) for c in range(3)]
     P["couleur_carte"] = ["#%02x%02x%02x" % tuple(int(v) for v in x) for x in zip(*med)]
     P["couleur_hex"] = np.where(P.code != "", lg.couleur_hex.fillna("").values, P.couleur_carte)
@@ -475,19 +559,25 @@ def finish(rgb, lab, pf, N, transform, crs, legend, out_gpkg):
     P = P[["id", "code", "nom", "age", "lithologie", "source_nom", "confiance", "texte_lu", "suggestions",
            "couleur_hex", "couleur_carte", "surface_km2", "geometry"]]
     F = vectorize_faults(pf, transform, crs)
-    export_gpkg(out_gpkg, P, F, legend.loc[legend.index.isin(P.code)])
+    lang = lang or LANG; O = OUT_NAMES[lang]
+    if lang != "fr":
+        P["nom"] = np.where(P.nom == OUT_NAMES["fr"]["unnamed"], O["unnamed"], np.where(P.nom == OUT_NAMES["fr"]["water"], O["water"], P.nom))
+        P["source_nom"] = P.source_nom.map(lambda v: O["src"].get(v, v))
+        P = P.rename(columns=O["cols"])
+    export_gpkg(out_gpkg, P, F, legend.loc[legend.index.isin(P.code)], lang)
     return P, F
 
 
 def run(rgb, transform, crs, model, legend, reader, naming_pkl, out_gpkg, tta=False, log=print, ranker_pkl="legend_ranker.pkl",
-        water_pkl=os.path.join(HERE, "water_model.pkl"), prop_pkl=None):
+        water_pkl=os.path.join(HERE, "water_model.pkl"), prop_pkl=None, lang=None):
     t = time.time()
     lab, pf, N = analyse_blocks(rgb, model, legend, reader, naming_pkl, ranker_pkl, water_pkl, tta=tta, log=log)
     LAST.update(lab0=lab, N0=N.copy())
     N = propagate_codes(rgb, lab, N, prop_pkl, legend); log(f"propagation par la couleur ({time.time() - t:.0f} s)")
     LAST.update(N_prop=N.copy())
     lab, N = merge_same_code(lab, N)
+    lab, N = merge_slivers(lab, N)
     LAST.update(lab1=lab, N1=N.copy())
-    P, F = finish(rgb, lab, pf, N, transform, crs, legend, out_gpkg)
+    P, F = finish(rgb, lab, pf, N, transform, crs, legend, out_gpkg, lang)
     log(f"export : {out_gpkg} | {len(P)} unités, {len(F)} failles ({time.time() - t:.0f} s)")
     return P, F, lab, pf

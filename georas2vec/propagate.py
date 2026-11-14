@@ -6,6 +6,7 @@ import numpy as np, pandas as pd
 
 PFEATS = ["d1", "d2", "ratio", "n_anc1", "log_aire", "dist_xy1", "dist_xy_c1", "rank_top_eq", "rank_conf", "dL", "dab", "n_near_c1"]
 PFEATS_LEG = PFEATS + ["d_leg1", "leg_gap", "leg_rank"]   # + ressemblance à la case de légende du code proposé
+WHITE_L, WHITE_C = 94.0, 4.0
 ANCHOR_SRC = "code lu sur la carte"
 RADIUS = 2048.0   # px (scans 300 dpi) : échelle des distances et rayon du voisinage
 
@@ -64,13 +65,14 @@ def propagate(P, F, model, thr=None, legend_feats=None):
     seulement par la couleur de la légende, peu fiables sur scan) reçoivent le code propagé si p >= thr."""
     thr = model.get("thr", 0.8) if thr is None else thr
     P = P.copy()
-    anchor = np.where((P.source_nom.values == ANCHOR_SRC) & (P.code.values != ""), P.code.values, "")
+    white = (F[:, 0] > WHITE_L) & (np.hypot(F[:, 1], F[:, 2]) < WHITE_C)   # papier / glace : jamais propagé
+    anchor = np.where((P.source_nom.values == ANCHOR_SRC) & (P.code.values != "") & ~white, P.code.values, "")
     X = features(P, F, anchor, legend_feats=legend_feats if "d_leg1" in model["features"] else None)
     if not len(X):
         return P
     X["p"] = model["model"].predict_proba(X[model["features"]])[:, 1]
     water = np.isin(P.source_nom.values, ["eau", "eau ou hors carte"])
-    weak = ((P.code.values == "") & ~water) | (P.source_nom.values == "couleur de la légende")
+    weak = (((P.code.values == "") & ~water) | (P.source_nom.values == "couleur de la légende")) & ~white
     for r in X.itertuples():
         if weak[r.i] and r.p >= thr:
             j = P.index[r.i]

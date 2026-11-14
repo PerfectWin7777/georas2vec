@@ -6,7 +6,7 @@ Set GEORAS2VEC_ASSETS to a folder that already contains the files to work fully 
 import os
 
 REPO_ID = os.environ.get("GEORAS2VEC_REPO", "PerfectWin/georas2vec-model")
-REVISION = os.environ.get("GEORAS2VEC_REVISION", "v0.5")
+REVISION = os.environ.get("GEORAS2VEC_REVISION", "v0.6")
 FILES = {
     "weights": "best_fp16.pt",          # segmentation network (affinities + faults)
     "naming": "naming_model.pkl",       # text -> polygon scorer

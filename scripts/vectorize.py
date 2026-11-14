@@ -1,6 +1,6 @@
 """GeoRas2Vec – vectorise a georeferenced geological map raster into a GeoPackage (QGIS / ArcGIS).
 
-    python scripts/vectorize.py map.tif legend.csv out.gpkg [--assets DIR] [--tta]
+    python scripts/vectorize.py map.tif legend.csv out.gpkg [--assets DIR] [--lang en|fr] [--tta]
 
 legende.csv : one row per legend entry, columns
     code (required, as printed on the map), nom, age, lithologie (optional),
@@ -43,6 +43,7 @@ if __name__ == "__main__":
     ap.add_argument("raster"); ap.add_argument("legend"); ap.add_argument("out")
     ap.add_argument("--assets", default=None, help="folder with the model files (default: download from Hugging Face)")
     ap.add_argument("--tta", action="store_true", help="average over 4 flips (slower, not better on average)")
+    ap.add_argument("--lang", default="en", choices=["en", "fr"], help="language of layer / column names and values (default: en)")
     a = ap.parse_args()
     import easyocr
     A = georas2vec.fetch_assets(a.assets)
@@ -53,6 +54,6 @@ if __name__ == "__main__":
     model = PL.load_model(A["weights"])
     reader = easyocr.Reader(["en"], gpu=False, verbose=False)
     P, F, lab, pf = PL.run(rgb, tr, crs, model, legend, reader, A["naming"], a.out, tta=a.tta,
-                           ranker_pkl=A["ranker"], water_pkl=A["water"], prop_pkl=A["propagation"])
+                           ranker_pkl=A["ranker"], water_pkl=A["water"], prop_pkl=A["propagation"], lang=a.lang)
     n = P.code.ne("").sum()
     print(f"\n{len(P)} units ({n} named, {len(P) - n} not identified, with suggestions), {len(F)} faults -> {a.out}")
