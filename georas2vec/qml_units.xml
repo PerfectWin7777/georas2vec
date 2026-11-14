@@ -1,0 +1,41 @@
+<!DOCTYPE qgis PUBLIC 'http://mrcc.com/qgis.dtd' 'SYSTEM'>
+<qgis version="3.34.0" styleCategories="Symbology|Labeling">
+ <renderer-v2 type="singleSymbol" symbollevels="0" enableorderby="0" forceraster="0">
+  <symbols>
+   <symbol type="fill" name="0" alpha="1" clip_to_extent="1" force_rhr="0">
+    <layer class="SimpleFill" enabled="1" locked="0" pass="0">
+     <Option type="Map">
+      <Option name="color" type="QString" value="200,200,200,255"/>
+      <Option name="outline_color" type="QString" value="40,40,40,255"/>
+      <Option name="outline_style" type="QString" value="solid"/>
+      <Option name="outline_width" type="QString" value="0.15"/>
+      <Option name="outline_width_unit" type="QString" value="MM"/>
+      <Option name="style" type="QString" value="solid"/>
+     </Option>
+     <data_defined_properties>
+      <Option type="Map">
+       <Option name="name" type="QString" value=""/>
+       <Option name="properties" type="Map">
+        <Option name="fillColor" type="Map">
+         <Option name="active" type="bool" value="true"/>
+         <Option name="expression" type="QString" value="&quot;couleur_hex&quot;"/>
+         <Option name="type" type="int" value="3"/>
+        </Option>
+       </Option>
+       <Option name="type" type="QString" value="collection"/>
+      </Option>
+     </data_defined_properties>
+    </layer>
+   </symbol>
+  </symbols>
+ </renderer-v2>
+ <labeling type="simple">
+  <settings calloutType="simple">
+   <text-style fieldName="code" isExpression="0" fontSize="8" fontSizeUnit="Point" fontFamily="Arial" textColor="20,20,20,255" fontWeight="50">
+    <text-buffer bufferDraw="1" bufferSize="0.6" bufferSizeUnits="MM" bufferColor="255,255,255,200"/>
+   </text-style>
+   <placement placement="1" placementFlags="10" centroidInside="1" fitInPolygonOnly="1"/>
+   <rendering scaleVisibility="0" obstacle="1" limitNumLabels="0" displayAll="0"/>
+  </settings>
+ </labeling>
+</qgis>
