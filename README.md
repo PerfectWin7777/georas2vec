@@ -90,12 +90,20 @@ End to end on a held-out 6144 × 6144 px region of the USGS *Geologic Map of Nor
 | **+ colour propagation (GeoRas2Vec)** | **74.7 %** | **93.7 %** | **69.9 %** |
 
 > **Important — idealised legend.** In this experiment the legend colours were measured on the scan itself (median
-> colour of each unit's polygons elsewhere on the same map series), which is close to a perfect legend. With the
-> **printed legend** read automatically (USGS explanation sheet), names come out much lower: on reference polygons,
-> cross-sheet, about **19 %** of the area is correctly named from text and legend at 91–94 % precision (before colour
-> propagation), against 34–44 % with the idealised legend. Telling apart ~850 legend swatches by colour alone is
-> the current bottleneck (patterns matter); see *Limitations*. The first suggestion is usually right when the legend
-> is good, so a quick validation step by the user recovers much more.
+> colour of each unit's polygons elsewhere on the same map series), which is close to a perfect legend.
+
+**Realistic setting (v0.7)** — the printed legend (USGS explanation sheet) is read automatically: swatch boxes,
+codes read by our geological code reader, colours; polygons predicted; 4 held-out zones of the southern sheet; the
+naming models and the swatch comparator were trained on the northern sheet only:
+
+| | text + legend | + colour propagation | names correct |
+|---|---|---|---|
+| real legend, colour signatures only | 17.2 % | 23.6 % | 90.1 % |
+| **real legend + learned swatch comparator (v0.7)** | **31.8 %** | **37.5 %** | **87.6 %** |
+
+<sub>Area correctly named, mean of 4 zones of 2048 × 2048 px; per zone 11.6 %–69.0 % with v0.7. Telling apart
+hundreds of similar legend swatches remains the main limit; the first suggestion is often right, so a quick
+validation step by the user recovers more.</sub>
 
 ![Where do the names come from](docs/img/naming_region.png)
 
