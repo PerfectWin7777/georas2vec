@@ -9,7 +9,7 @@ rows = []
 for f in sorted(glob.glob("../hf_ds_v2/data/test-*.parquet")):
     rows += [r for r in pq.read_table(f, columns=["id", "kind", "image", "instances", "faults"]).to_pylist() if r["kind"] == "real"]
 out = []
-for nm, w in (("actuel", "../train_out2/georas2vec_model/best_fp16.pt"), ("complet", "../full_out/georas2vec_model/best_fp16.pt")):
+for nm, w in [(a.split("=")[0], a.split("=")[1]) for a in sys.argv[1:]]:
     model = PL.load_model(w); TP = FP = FN = 0
     for r in rows:
         rgb = np.asarray(Image.open(io.BytesIO(r["image"]["bytes"])).convert("RGB"))

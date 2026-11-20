@@ -11,8 +11,9 @@ from rasterio.transform import Affine
 torch.set_num_threads(4)
 B = "../brgm"
 P = gpd.read_file(f"{B}/dl14/GEO050K_HARM_014_S_FGEOL_2154.shp")
-L = gpd.read_file(f"{B}/dl14/GEO050K_HARM_014_L_STRUCT_2154.shp"); L = L[L.DESCR.str.contains("aille", na=False)]
-model = PL.load_model(os.environ.get("WEIGHTS", "../train_out2/georas2vec_model/best_fp16.pt"))
+import brgm_tiles as BT
+_P, L = BT.layers("014")    # failles = « faille » dans L_STRUCT ET L_FGEOL (même définition que l'entraînement)
+model = PL.load_model(os.environ.get("WEIGHTS", "../train_out2/geocarto_model/best_fp16.pt"))
 rows = []
 for f in sorted(glob.glob(f"{B}/img/scan_*.png")):
     x0, y0 = (int(v) for v in re.findall(r"scan_(\d+)_(\d+)", f)[0]); S = 8600; H = W = 2048
@@ -28,6 +29,11 @@ for f in sorted(glob.glob(f"{B}/img/scan_*.png")):
     # unité minimale de cartographie comme le jeu de données (< 40 px fusionnés au voisin)
     inst = SE.remove_small(inst, 40) if inst.max() else inst
     flt = rasterize(((g, 1) for g in L.cx[x0:x0 + S, y0:y0 + S].geometry), out_shape=(H, W), transform=tr, fill=0, dtype="uint8")
+    if os.environ.get("SEP_REMOVE"):      # séparateur : on retire l'encre des classes demandées avant la segmentation
+        import separator as SP
+        if "SEPM" not in globals():
+            SEPM = SP.Separator(pretrained=False); SEPM.load_state_dict(torch.load("separator.pt", map_location="cpu"))
+        pl, pr = SP.separate(SEPM, rgb); rgb = SP.clean(rgb, pl, pr, remove=tuple(int(c) for c in os.environ["SEP_REMOVE"].split(",")))
     lab, pf = PL.segment(model, rgb)
     m = SE.metrics(lab, pf, inst, flt, 0.2)
     F = PL.vectorize_faults(pf, Affine.identity(), None)

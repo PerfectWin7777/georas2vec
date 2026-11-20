@@ -522,9 +522,16 @@ def _spaced(t):
     return " ".join(t) if len(t) < 12 else t
 
 
-def render_map(src, U, lines, rng, px_m, overrides=None):
+# Classes d'encre (mode layers) : 0 aucune, 1 contact, 2 côte, 3 faille, 4 texte / étiquette / trait de rappel,
+# 5 autre trait (isobathe, graticule, rivière, frontière). Le fond topographique (topo_aug) ajoute la classe 6.
+INK_CLASSES = ["none", "contact", "coast", "fault", "text", "other_line", "topo"]
+
+
+def render_map(src, U, lines, rng, px_m, overrides=None, layers=False):
     """U : uid (R x R) ; lines : failles en px internes. Retourne l'image RGB uint8 (TILE x TILE).
-    overrides : force des paramètres d'édition (ex. palette='mono', pattern_p=1.0 pour les jeux 'pièges')."""
+    overrides : force des paramètres d'édition (ex. palette='mono', pattern_p=1.0 pour les jeux 'pièges').
+    layers=True : renvoie en plus ed["_plate"] (la même carte sans aucune encre, mêmes impression et numérisation) et
+    ed["_ink"] (classe d'encre par pixel, voir INK_CLASSES). Les tirages aléatoires sont identiques à layers=False."""
     e = edition(rng)
     e.update(overrides or {})
     ed_seed = int(rng.integers(1 << 30))
@@ -557,6 +564,9 @@ def render_map(src, U, lines, rng, px_m, overrides=None):
             col = LUT[u] * r.uniform(0.45, 0.75)
         img[m] = col
 
+    plate = img.copy() if layers else None
+    ink = np.zeros(U.shape, np.uint8) if layers else None
+
     # --- contacts géologiques
     if e["contacts"]:
         b = np.zeros_like(land)
@@ -576,13 +586,26 @@ def render_map(src, U, lines, rng, px_m, overrides=None):
                 dz = ndi.binary_dilation(np.isin(U, dashed_units), iterations=2)
                 b &= ~(dz & (((xx + yy) // 10) % 2 == 0))
         img[b] = e["c_col"]
+        if layers:
+            ink[b] = 1
         if e["coast"]:
             cw = int(rng.integers(2, 5))
-            img[ndi.binary_dilation(coast, iterations=cw - 1) if cw > 1 else coast] = e["coast_col"]
+            cm = ndi.binary_dilation(coast, iterations=cw - 1) if cw > 1 else coast
+            img[cm] = e["coast_col"]
+            if layers:
+                ink[cm] = 2
 
     sea_frac = 1 - land.mean()
     im = Image.fromarray(np.clip(img, 0, 255).astype(np.uint8))
     d = ImageDraw.Draw(im)
+    last = [np.asarray(im).copy()] if layers else None
+
+    def mark(cls):          # mode layers : les pixels modifiés depuis le dernier appel reçoivent la classe cls
+        if layers:
+            a = np.asarray(im)
+            ink[(a != last[0]).any(-1)] = cls
+            last[0] = a.copy()
+
     texts = []   # tous les textes imprimés : {"k": "u" (code d'unité) / "o" (autre), "b": boîte, "t": point désigné}
 
     def note(kind, xy, t, f, target=None, **kw):
@@ -616,6 +639,7 @@ def render_map(src, U, lines, rng, px_m, overrides=None):
             d.text(xy, t, font=f, fill=(int(rng.integers(20, 80)), int(rng.integers(80, 140)), int(rng.integers(170, 220))))
             note("o", xy, t, f)
 
+    mark(5)
     # --- graticule (méridiens / parallèles) + degrés
     for _ in range(rng.integers(0, 3)):
         col = tuple(int(v) for v in (rng.integers(0, 90, 3) if rng.random() < .6 else (rng.integers(150, 210), 120, rng.integers(150, 210))))
@@ -631,6 +655,7 @@ def render_map(src, U, lines, rng, px_m, overrides=None):
             d.text(lab_xy, t, font=f, fill=col)
             note("o", lab_xy, t, f)
 
+    mark(5)
     # --- rivières
     if rng.random() < 0.55:
         col = (int(rng.integers(60, 130)), int(rng.integers(150, 200)), int(rng.integers(210, 245)))
@@ -638,12 +663,14 @@ def render_map(src, U, lines, rng, px_m, overrides=None):
             xs, ys = _random_curve(rng, wiggle=0.2, step=5)
             d.line(list(zip(xs, ys)), fill=col, width=int(rng.integers(2, 4)), joint="curve")
 
+    mark(5)
     # --- frontières politiques (tirets colorés)
     if rng.random() < 0.35:
         col = [(200, 120, 200), (170, 110, 60), (150, 90, 170), (230, 150, 60), (120, 120, 120)][rng.integers(5)]
         xs, ys = _random_curve(rng, wiggle=0.08, step=8)
         _dashed(d, xs, ys, col, int(rng.integers(4, 9)), int(rng.integers(8, 20)), int(rng.integers(4, 10)))
 
+    mark(5)
     # --- failles
     for xs, ys, kind, conc in lines:
         r = np.random.default_rng(_seed(ed_seed, "f", round(float(xs[0]), 1), round(float(ys[0]), 1)))
@@ -651,6 +678,7 @@ def render_map(src, U, lines, rng, px_m, overrides=None):
             kind = r.choice(["thrust", "normal"])
         _draw_fault(d, xs, ys, kind, conc, e["f_w"], e["f_col"], r, 1 if r.random() < .5 else -1)
 
+    mark(3)
     # --- étiquettes d'unités (au point le plus intérieur de chaque instance, + traits de rappel)
     if e["label_p"] > 0 and uids:
         inst = cc_label(U, background=0, connectivity=1)
@@ -711,32 +739,48 @@ def render_map(src, U, lines, rng, px_m, overrides=None):
         d.text(xy, t, font=f, fill=(int(rng.integers(80, 140)), int(rng.integers(50, 90)), int(rng.integers(20, 60))))
         note("o", xy, t, f)
 
+    mark(4)
     # --- réduction x2 (anti-crénelage d'impression)
-    im = im.resize((TILE, TILE), Image.LANCZOS if rng.random() < .5 else Image.BOX)
+    flt_ = Image.LANCZOS if rng.random() < .5 else Image.BOX
+    im = im.resize((TILE, TILE), flt_)
+    if layers:
+        pim = Image.fromarray(np.clip(plate, 0, 255).astype(np.uint8)).resize((TILE, TILE), flt_)
+        k = R // TILE                     # classe d'encre : la plus « forte » du bloc k x k (priorité au numéro le plus haut)
+        ink = ink.reshape(TILE, k, TILE, k).max(axis=(1, 3))
 
-    # --- impression / numérisation
+    # --- impression / numérisation (mêmes tirages, appliqués à la carte et, en mode layers, à la plaque)
+    ims = [im, pim] if layers else [im]
     if e["scan"]:
-        a = np.asarray(im, np.float32)
         paper = np.array([rng.uniform(238, 255), rng.uniform(230, 252), rng.uniform(205, 240)], np.float32) / 255
-        a = a * paper
         gy, gx = np.mgrid[:TILE, :TILE] / TILE
-        a *= (1 - rng.uniform(0, 0.08) * (rng.uniform(-1, 1) * gx + rng.uniform(-1, 1) * gy))[..., None]
-        a = ndi.gaussian_filter(a, (rng.uniform(0.2, 0.9),) * 2 + (0,))
-        a = 255 * (np.clip(a, 0, 255) / 255) ** rng.uniform(0.85, 1.15)
-        a += rng.normal(0, rng.uniform(0.5, 4), a.shape)
-        if rng.random() < 0.2:
-            ch = rng.integers(3)
-            a[..., ch] = np.roll(a[..., ch], rng.choice([-1, 1]), axis=rng.integers(2))
-        im = Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))
+        grad = (1 - rng.uniform(0, 0.08) * (rng.uniform(-1, 1) * gx + rng.uniform(-1, 1) * gy))[..., None]
+        sig, gam = rng.uniform(0.2, 0.9), None
+        out = []
+        for j, x in enumerate(ims):
+            a = np.asarray(x, np.float32) * paper * grad
+            a = ndi.gaussian_filter(a, (sig,) * 2 + (0,))
+            if j == 0:
+                gam = rng.uniform(0.85, 1.15)
+                noise = rng.normal(0, rng.uniform(0.5, 4), a.shape)
+                shift = (rng.integers(3), rng.choice([-1, 1]), rng.integers(2)) if rng.random() < 0.2 else None
+            a = 255 * (np.clip(a, 0, 255) / 255) ** gam + noise
+            if shift is not None:
+                a[..., shift[0]] = np.roll(a[..., shift[0]], shift[1], axis=shift[2])
+            out.append(Image.fromarray(np.clip(a, 0, 255).astype(np.uint8)))
+        ims = out
         q = int(rng.integers(50, 92))
     else:
         q = int(rng.integers(80, 98)) if rng.random() < .5 else None
     if q:
-        buf = io.BytesIO()
-        im.save(buf, "JPEG", quality=q)
-        im = Image.open(buf).convert("RGB")
+        for j, x in enumerate(ims):
+            buf = io.BytesIO()
+            x.save(buf, "JPEG", quality=q)
+            ims[j] = Image.open(buf).convert("RGB")
+    im = ims[0]
     ed = {k: (v if isinstance(v, (int, float, str, bool)) else str(v)) for k, v in e.items()}
     ed["_texts"] = texts
+    if layers:
+        ed["_plate"], ed["_ink"] = np.asarray(ims[1], np.uint8), ink
     return np.asarray(im, np.uint8), ed
 
 
@@ -771,7 +815,7 @@ class BlockSplit:
         return s.pop() if len(s) == 1 else None
 
 
-def synth_tile(src, bs, split, rng, max_tries=60, overrides=None):
+def synth_tile(src, bs, split, rng, max_tries=60, overrides=None, layers=False):
     """Tire une fenêtre entièrement contenue dans des blocs du split demandé, et la rend."""
     lo, hi = src.px_range
     for _ in range(max_tries):
@@ -797,7 +841,7 @@ def synth_tile(src, bs, split, rng, max_tries=60, overrides=None):
         if nu < 2 or (nu < 4 and rng.random() < 0.6):
             continue
         lines = fault_lines_px(src, win, x0, y1, px / SS)
-        rgb, ed = render_map(src, U, lines, rng, px, overrides)
+        rgb, ed = render_map(src, U, lines, rng, px, overrides, layers)
         Uf = generalize(U[SS // 2::SS, SS // 2::SS], 1)   # le sous-échantillonnage peut couper des isthmes fins
         inst = instances(Uf)
         flt = faults_gt(lines, 1 / SS)

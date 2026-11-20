@@ -210,6 +210,9 @@ The code that builds the tiles is in [`dataset/`](dataset/).
   blocks are planned.
 - **Coverage**: evaluated mostly on North-American real scans. Other map series may need a legend CSV with
   swatch boxes.
+- **Detailed maps with a topographic background** (e.g. BRGM 1:50 000): roads and contour lines can be taken for
+  unit boundaries, and faults drawn as thin black lines are rarely detected. Every training run and diagnostic on
+  this problem, including the failed ones, is documented in [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md).
 
 ## Citation
 
