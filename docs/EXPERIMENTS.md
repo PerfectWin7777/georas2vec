@@ -172,13 +172,34 @@ Using the separator as a **pre-processing cleaner** (topographic ink replaced by
 The plate is reconstructed well, but hard cleaning is not enough: half of the topographic ink is missed and the
 mistakes become final. Hence the next step feeds the **probabilities** to the segmenter and trains it (§ 5.1).
 
-### 5.4 Next run (prepared, Kaggle `georas2vec-layers`)
+### 5.4 Layered model training (Kaggle `georas2vec-layers`)
 
 - separator: U-Net ResNet-34, 8 000 steps, crops 384, batch 16, on the full layered dataset (≈ 2 400 tiles,
   6 sources);
 - segmenter: 16-channel v0.7 (initialised from v0.7), 20 000 steps, LR 2e-4, batches 35 % real USGS, 10 % BRGM,
   rest synthetic, topographic background 25 %; separator frozen;
 - evaluation: the frozen protocol of § 1 plus the "topo added" USGS condition of § 4.
+
+### 5.5 Result of the layered model (v0.9-layers, Kaggle `georas2vec-layers`, 5.5 h T4)
+
+Separator (validation, 240 rendered tiles): plate error on ink pixels 82.0 → **13.9**; ink-class IoU none 0.88,
+contact 0.56, coast 0.32, fault 0.63, text 0.48, other line 0.22, topographic 0.64 (CPU proof of concept: 16.5 and
+0.44 / 0.45 / 0.48 for contact / fault / topographic).
+
+| test | v0.7 | v0.8 | **v0.9-layers** |
+|---|---|---|---|
+| USGS official | **94.5** / 77.0 / **98.5** / **0.783** | 92.1 / 75.4 / 97.9 / 0.758 | 93.0 / **77.4** / 98.0 / 0.778 |
+| USGS + topo added | 85.5 / 73.0 / 73.7 / 0.44 | 90.4 / 72.0 / 96.5 / 0.75 | 89.1 / **75.2** / **96.9** / **0.78** |
+| BRGM Calvados | **83.1** / **63.4** / 70.4 / 0.07 | 82.0 / 47.1 / **90.8** / **0.56** | 82.9 / 42.7 / 90.0 / 0.45 |
+
+<sub>large / small / area / fault F1. Synthetic test (672 tiles, notebook metric): area 92.3 %, no regression.</sub>
+
+- **Best compromise so far.** On clean USGS maps the loss shrinks from 2.4 to 1.5 points (large units), small units
+  and faults are unchanged. With a topographic background the model keeps 96.9 % of the area and its fault F1 does
+  not move at all (0.78 with and without background), whereas v0.7 falls to 0.44.
+- **Not adopted under the frozen rule** (USGS large −1.5 > 0.5; BRGM small units 63.4 → 42.7).
+- The remaining BRGM weakness is the small units, the same failure as every run trained on BRGM tiles (§ 3.2, point 5):
+  it points to the BRGM reference for small units rather than to the architecture.
 
 ## 6. Questions a reader may ask
 
