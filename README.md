@@ -11,7 +11,7 @@
 [![Dataset](https://img.shields.io/badge/🤗%20Dataset-georas2vec-yellow)](https://huggingface.co/datasets/PerfectWin/georas2vec)
 ![QGIS](https://img.shields.io/badge/QGIS-3.34%2B-green)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![Version](https://img.shields.io/badge/version-0.6-informational)
+![Version](https://img.shields.io/badge/version-0.8-informational)
 [![License](https://img.shields.io/badge/code-Apache--2.0-blue)](LICENSE)
 
 </div>
@@ -66,23 +66,52 @@ held-out map region.
 
 ### Polygons and faults
 
-![Official test split scores](docs/img/results_test_scores.png)
+| test (large units / small units / area in the correct polygon / fault F1) | v0.7 | **v0.8** |
+|---|---|---|
+| real scans, USGS GMNA 300 dpi (78 tiles, official test split) | **94.5** / 77.0 / **98.5** / 0.78 | 93.0 / **77.4** / 98.0 / 0.78 |
+| same scans with a topographic background printed over them | 85.5 / 73.0 / 73.7 / 0.44 | **89.1** / **75.2** / **96.9** / **0.78** |
+| BRGM 1:50 000 sheet, Calvados (map series never seen in training) | **83.1** / **63.4** / 70.4 / 0.07 | 82.9 / 42.7 / **90.0** / **0.45** |
+| synthetic maps, 4 continents (530 tiles) | 87.5 / 76.2 / 91.2 / 0.98 | **88.0** / **76.6** / **91.8** / 0.97 |
 
-| official test split | large units | small units | map area in the correct polygon |
-|---|---|---|---|
-| real scans (78 tiles, USGS GMNA 300 dpi) | **94.5 %** | **77.0 %** | **98.5 %** |
-| synthetic maps, 4 continents (60 tiles) | 85.2 % | 73.6 % | 90.4 % |
+<sub>A reference unit is recovered when a predicted polygon matches it with IoU ≥ 0.5; small = &lt; 1000 px.
+Fault F1: line level, 2 px tolerance. Synthetic row: metric of the training notebook. All protocols and every run
+behind these numbers: [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md).</sub>
 
-<sub>A reference unit is recovered when a predicted polygon matches it with IoU ≥ 0.5. Small = &lt; 1000 px.</sub>
+![Official test split scores (v0.7)](docs/img/results_test_scores.png)
 
-**Faults**: line-level F1 at 2 px tolerance is **0.80** on the real-scan test split and **0.85** on a held-out region.
+### New in v0.8: maps printed over a topographic base
+
+Detailed geological maps (for example the French 1:50 000 sheets) print the geology over a full topographic map:
+contour lines, roads, field boundaries, villages, place names. Up to v0.7 the network had learned a shortcut that
+is true on small-scale maps: *a thin black line is a unit boundary*. On a detailed sheet most thin black lines are
+roads, so v0.7 cut the units along every road and contour line, and found almost none of the faults.
+
+**What we tried first.** Training one network on both kinds of maps (real 1:50 000 sheets added to the training
+data, synthetic topographic backgrounds, rebalanced batches, a network conditioned on the map style). Each of these
+models learned the detailed maps but lost 2 to 4 points on the small-scale scans: the same visual sign has opposite
+meanings in the two kinds of maps, and a network deciding from a local window can only compromise. A diagnostic
+confirmed it: erasing the black ink from the USGS scans costs v0.7 13 points, even though the unit colours are
+intact.
+
+**What v0.8 does.** It reads a map the way it was printed, as a stack of layers. A *layer separator* first predicts
+the colour plate (the map as if no ink had been printed) and the kind of ink on every pixel: contact, fault,
+coastline, text, other line, topographic background. The segmentation network then reads the image together with
+these layers. The separator is trained on exact pairs produced by our map renderer (same map with and without
+each ink layer). The segmentation network starts from v0.7 weights, so it keeps what v0.7 knew.
+
+![Layer separation on a BRGM sheet](docs/img/layers_brgm.png)
+
+Result: on maps with a topographic background the area in the correct polygon goes from 73.7 % to 96.9 % and fault
+detection no longer degrades (F1 0.78 with or without background); on the French sheet the area goes from 70 % to
+90 % and faults are found (F1 0.07 → 0.45). The price is 1.5 points on large units of clean small-scale scans.
+v0.7 stays available: `GEORAS2VEC_REVISION=v0.7`.
 
 ![Four continents](docs/img/results_continents.png)
 
 ### Names
 
 End to end on a held-out 6144 × 6144 px region of the USGS *Geologic Map of North America*
-(polygons and names both predicted):
+(polygons and names both predicted; measured with the v0.7 segmentation network):
 
 | | area named | names correct | area correctly named |
 |---|---|---|---|
@@ -113,8 +142,10 @@ validation step by the user recovers more.</sub>
 
 ![From pixels to geometry](docs/img/method_geometry.png)
 
-1. **Segmentation**: a U-Net++ (EfficientNet-B4) reads RGB + CIE-Lab. For every pixel it predicts whether the
-   pixel belongs to the same unit as its neighbours at 10 offsets (1–27 px). It also predicts a fault probability map.
+1. **Layer separation and segmentation**: a U-Net (ResNet-34) separates the printed layers: colour plate and seven
+   kinds of ink. A U-Net++ (EfficientNet-B4) reads RGB + CIE-Lab + these layers. For every pixel it predicts whether
+   the pixel belongs to the same unit as its neighbours at 10 offsets (1–27 px). It also predicts a fault
+   probability map.
 2. **Polygons**: a mutex watershed turns the affinities into regions. It runs twice, at scale 1 and on the image
    enlarged ×1.25, and the two partitions are intersected. Scale 1 separates large units; the enlarged scale finds
    small ones.
@@ -161,7 +192,7 @@ python scripts/vectorize.py my_map.tif my_legend.csv my_map.gpkg --legend-box 12
 - `my_legend.csv` has one row per legend entry: `code` (as printed on the map), optional `nom`, `age`,
   `lithologie`, and either the pixel box of the legend swatch (`x0,y0,x1,y1`, recommended) or its colour
   (`couleur_hex`). See [`examples/legende_exemple.csv`](examples/legende_exemple.csv).
-- The model files (≈ 45 MB) are downloaded once from
+- The model files (≈ 100 MB) are downloaded once from
   [Hugging Face](https://huggingface.co/PerfectWin/georas2vec-model). To work offline, put them in a folder and
   pass `--assets that_folder`.
 - `tests/qgis_check.py out.gpkg render.png` checks a GeoPackage with PyQGIS: layers, styles, geometry validity,
@@ -210,9 +241,10 @@ The code that builds the tiles is in [`dataset/`](dataset/).
   blocks are planned.
 - **Coverage**: evaluated mostly on North-American real scans. Other map series may need a legend CSV with
   swatch boxes.
-- **Detailed maps with a topographic background** (e.g. BRGM 1:50 000): roads and contour lines can be taken for
-  unit boundaries, and faults drawn as thin black lines are rarely detected. Every training run and diagnostic on
-  this problem, including the failed ones, is documented in [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md).
+- **Detailed maps with a topographic background** (e.g. BRGM 1:50 000): v0.8 handles the background, but small
+  units are often merged (42.7 % recovered on the French test sheet, 63.4 % with v0.7), and on real sheets the
+  separator still labels many roads as faults (the segmentation network is not misled). Every training run and
+  diagnostic, including the failed ones, is in [`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md).
 
 ## Citation
 

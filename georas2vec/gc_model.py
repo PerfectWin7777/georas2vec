@@ -115,13 +115,23 @@ class GeoRas2VecNet(nn.Module):
         self.register_buffer("mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
         self.register_buffer("std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
         Arch = {"unet": smp.Unet, "unetpp": smp.UnetPlusPlus}[cfg["arch"]]
-        self.net = Arch(cfg["encoder"], encoder_weights="imagenet" if pretrained else None, in_channels=6,
-                        classes=len(cfg["offsets"]) + 1)
+        # v0.8: a frozen layer separator (colour plate + ink classes) feeds 10 extra channels to the network
+        try:
+            from .separator import Separator
+        except ImportError:
+            from separator import Separator
+        self.sep = Separator() if cfg.get("sep") else None
+        self.net = Arch(cfg["encoder"], encoder_weights="imagenet" if pretrained else None,
+                        in_channels=16 if self.sep is not None else 6, classes=len(cfg["offsets"]) + 1)
 
     def forward(self, x8):
         with torch.autocast(x8.device.type, enabled=False):      # conversion de couleur en précision complète
             x = x8.float() / 255
             x = torch.cat([(x - self.mean) / self.std, rgb2lab(x)], 1)
+            if self.sep is not None:
+                with torch.no_grad():
+                    plate, ink = self.sep.eval()(x8)
+                x = torch.cat([x, (plate - 0.5) / 0.25, torch.softmax(ink.float(), 1)], 1)
         return self.net(x)
 
 

@@ -8,7 +8,8 @@ work on two kinds of scanned geological maps:
 - **detailed maps** (BRGM 1:50 000, France): units are printed over a full topographic base map (contour lines,
   roads, field boundaries, buildings, place names); faults are thin black lines that look like roads.
 
-All numbers, including failed runs, are reported. The published model is still **v0.7**.
+All numbers, including failed runs, are reported. The outcome is the **layer-separation model released as
+v0.8** (§ 5); v0.7 stays available as revision `v0.7` of the model repository.
 
 ---
 
@@ -61,7 +62,7 @@ topographic background augmentation.
 | fine-tune topo | v0.7 | short | as v0.7 | yes | – |
 | full retrain topo+faults | ImageNet | 30 000 | as v0.7 | 50 % | thin-black-fault restyle 30 % |
 | short mix | v0.7 | 4 000 | + BRGM tiles in the pool | 25 % | – |
-| **v0.8** | ImageNet | 30 000 | 35 % USGS, 15 % BRGM, 50 % synthetic | 25 % | – |
+| joint (both map kinds) | ImageNet | 30 000 | 35 % USGS, 15 % BRGM, 50 % synthetic | 25 % | – |
 | ft07 | v0.7 | 8 000, LR 1e-4 | 35 % USGS, 5 % BRGM | 25 % | BRGM units < 1500 px masked out of the loss |
 | seed | ImageNet | 30 000 | exactly the v0.7 recipe | – | random seed 1 instead of 0 |
 | film | ImageNet | 30 000 | 35 % USGS, 15 % BRGM | 25 % | map-style FiLM + ±2 px boundary tolerance band on BRGM |
@@ -75,7 +76,7 @@ topographic background augmentation.
 | seed (v0.7 recipe, seed 1) | 93.9 | **78.7** | 98.4 | 0.763 | 81.4 | 60.7 | 69.2 | 0.07 | run-to-run noise |
 | full retrain topo+faults | 93.5 | 75.7 | 97.6 | 0.694 | 88.3 | 64.6 | 89.2 | 0.07 | rejected |
 | short mix | 92.7 | 75.6 | 98.0 | 0.773 | 78.1 | 38.1 | 85.0 | 0.48 | rejected |
-| **v0.8** | 92.1 | 75.4 | 97.9 | 0.758 | 82.0 | 47.1 | **90.8** | **0.56** | rejected |
+| joint (both map kinds) | 92.1 | 75.4 | 97.9 | 0.758 | 82.0 | 47.1 | **90.8** | **0.56** | rejected |
 | ft07 | 92.0 | 74.8 | 97.9 | 0.757 | 74.8 | 32.5 | 81.5 | 0.42 | rejected |
 | film | 91.9 | 74.7 | 97.8 | 0.769 | 28.8 | 9.0 | 30.6 | 0.53 | rejected (design bug) |
 | film2 | 90.7 | 71.4 | 97.0 | 0.767 | 75.3 | 25.3 | 87.4 | 0.51 | rejected |
@@ -114,9 +115,9 @@ older, incomplete fault reference (L_STRUCT only); not comparable for faults.</s
 |---|---|---|---|---|---|
 | original | v0.7 | 94.5 | 77.0 | 98.5 | 0.78 |
 | ink erased | v0.7 | 81.6 | 62.3 | 92.2 | 0.02 |
-| ink erased | v0.8 | 80.7 | 61.1 | 92.6 | 0.02 |
+| ink erased | joint | 80.7 | 61.1 | 92.6 | 0.02 |
 | topo added | v0.7 | 85.5 | 73.0 | **73.7** | **0.44** |
-| topo added | v0.8 | 90.4 | 72.0 | 96.5 | 0.75 |
+| topo added | joint | 90.4 | 72.0 | 96.5 | 0.75 |
 
 <sub>Erasing ink also removes the fault lines (hence F1 ≈ 0) and slightly blurs the colours along lines; some
 dark-grey units may be partly erased. The 13–15 point drop is too large to be explained by that alone.</sub>
@@ -125,7 +126,7 @@ dark-grey units may be partly erased. The 13–15 point drop is too large to be 
 shortcut *thin black line = unit boundary*. Without the lines it loses 13–15 points even though the unit colours
 are intact. On detailed maps most thin black lines are roads and field boundaries, so the same local evidence has
 the opposite meaning. A convolutional network deciding from a local window cannot resolve this; mixing the two
-map kinds forces a compromise that loses on both (§ 3). v0.8 is robust to the topographic background (96.5 % area)
+map kinds forces a compromise that loses on both (§ 3). The joint model is robust to the topographic background (96.5 % area)
 but pays for it on clean maps.
 
 The question the network must answer is non-local: *does the colour change across this line, does the line close
@@ -136,7 +137,7 @@ a region of another colour, does it look like the other roads of this sheet?*
 ### 5.1 Idea
 
 A printed map is a stack of layers: colour plate (units and patterns), black linework (contacts, faults),
-topographic base, text. GeoRas2Vec v0.9 will first **separate the layers**, then segment:
+topographic base, text. GeoRas2Vec v0.8 first **separates the layers**, then segment:
 
 - **(A) separator**: image → clean colour plate (the map as if no ink had been printed) + per-pixel ink class
   (none, contact, coastline, fault, text, other line, topographic background);
@@ -172,7 +173,7 @@ Using the separator as a **pre-processing cleaner** (topographic ink replaced by
 The plate is reconstructed well, but hard cleaning is not enough: half of the topographic ink is missed and the
 mistakes become final. Hence the next step feeds the **probabilities** to the segmenter and trains it (§ 5.1).
 
-### 5.4 Layered model training (Kaggle `georas2vec-layers`)
+### 5.4 Training of the layered model (Kaggle `georas2vec-layers`)
 
 - separator: U-Net ResNet-34, 8 000 steps, crops 384, batch 16, on the full layered dataset (≈ 2 400 tiles,
   6 sources);
@@ -180,13 +181,13 @@ mistakes become final. Hence the next step feeds the **probabilities** to the se
   rest synthetic, topographic background 25 %; separator frozen;
 - evaluation: the frozen protocol of § 1 plus the "topo added" USGS condition of § 4.
 
-### 5.5 Result of the layered model (v0.9-layers, Kaggle `georas2vec-layers`, 5.5 h T4)
+### 5.5 Result: the layered model, released as v0.8 (Kaggle `georas2vec-layers`, 5.5 h T4)
 
 Separator (validation, 240 rendered tiles): plate error on ink pixels 82.0 → **13.9**; ink-class IoU none 0.88,
 contact 0.56, coast 0.32, fault 0.63, text 0.48, other line 0.22, topographic 0.64 (CPU proof of concept: 16.5 and
 0.44 / 0.45 / 0.48 for contact / fault / topographic).
 
-| test | v0.7 | v0.8 | **v0.9-layers** |
+| test | v0.7 | joint training | **v0.8 (layers)** |
 |---|---|---|---|
 | USGS official | **94.5** / 77.0 / **98.5** / **0.783** | 92.1 / 75.4 / 97.9 / 0.758 | 93.0 / **77.4** / 98.0 / 0.778 |
 | USGS + topo added | 85.5 / 73.0 / 73.7 / 0.44 | 90.4 / 72.0 / 96.5 / 0.75 | 89.1 / **75.2** / **96.9** / **0.78** |
@@ -197,17 +198,25 @@ contact 0.56, coast 0.32, fault 0.63, text 0.48, other line 0.22, topographic 0.
 - **Best compromise so far.** On clean USGS maps the loss shrinks from 2.4 to 1.5 points (large units), small units
   and faults are unchanged. With a topographic background the model keeps 96.9 % of the area and its fault F1 does
   not move at all (0.78 with and without background), whereas v0.7 falls to 0.44.
-- **Not adopted under the frozen rule** (USGS large −1.5 > 0.5; BRGM small units 63.4 → 42.7).
+- **Released as v0.8 although it does not meet the frozen rule** (USGS large −1.5 > 0.5; BRGM small units
+  63.4 → 42.7). Decision: one model that works on both kinds of maps is worth 1.5 points on clean overview maps,
+  given the gain on maps with a topographic background (area 73.7 → 96.9 %, fault F1 0.44 → 0.78). v0.7 remains
+  available (`GEORAS2VEC_REVISION=v0.7`).
+- **On real sheets the ink classes are only partly right** (figure below): the colour plate is clean, but many roads
+  are labelled *fault*. The segmenter is not misled (its faults follow the real faults), because it also sees the
+  image and the plate; the synthetic topographic background is still less varied than real base maps.
+
+![Layer separation on a BRGM sheet](img/layers_brgm.png)
 - The remaining BRGM weakness is the small units, the same failure as every run trained on BRGM tiles (§ 3.2, point 5):
   it points to the BRGM reference for small units rather than to the architecture.
 
 ## 6. Questions a reader may ask
 
-**Why not train one bigger network on everything?** Runs v0.8, ft07, film and film2 show that the loss on USGS
+**Why not train one bigger network on everything?** Runs joint, ft07, film and film2 show that the loss on USGS
 is systematic (≈ 2 points) and does not depend on dosage or initialisation; § 4 shows why: the same visual sign
 (thin black line) has opposite meanings in the two map kinds.
 
-**Why not a router between two models?** It works (v0.7 for overview maps, v0.8 for detailed maps would give
+**Why not a router between two models?** It works (v0.7 for overview maps, the joint model for detailed maps would give
 94.5 % USGS and 90.8 % BRGM area), but it hides the problem instead of solving it and does not extend to a third
 map series. We keep it as a baseline.
 
@@ -235,4 +244,4 @@ the real-world check.
 | ink / topo diagnostic | `GC_XFORM=erase|topo|clean|topo_clean training/eval/usgs_diag.py name=weights.pt` |
 | layered dataset | `training/build_layers.py 400` |
 | separator (CPU) | `training/train_separator.py` |
-| training runs | `training/kaggle/*.ipynb` (one notebook per run of § 3, plus `georas2vec-layers.ipynb`) |
+| training runs | `training/kaggle/*.ipynb` (one notebook per run of § 3: `georas2vec-mix-test`, `-joint`, `-ft07`, `-seed`, `-film`, `-film2`; v0.8 = `georas2vec-layers`) |

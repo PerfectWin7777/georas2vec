@@ -3,7 +3,7 @@ message: "If you use GeoRas2Vec, please cite it as below."
 title: "GeoRas2Vec: from scanned geological maps to vector units, faults and names"
 authors:
   - name: "Winter Tony"
-version: 0.7.0
+version: 0.8.0
 date-released: 2026-11-14
 repository-code: "https://github.com/PerfectWin7777/georas2vec"
 keywords:
